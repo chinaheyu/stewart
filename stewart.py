@@ -1,8 +1,8 @@
-import math
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.widgets import Slider, Button
 import transform as tf
+from plot_utils import Frame
 
 
 class StewartAxis:
@@ -36,10 +36,11 @@ class StewartLink:
         self.rocker = rocker
         self.value = initial_value
 
-    def get_middle_joint_at_lower_axis(self, dim=3):
-        return (self.lower_joint.get_transform()
-                @ tf.xyz_rpy_to_matrix((0.0, 0.0, 0.0, 0.0, 0.0, self.value))
-                @ np.array([[self.rocker], [0.0], [0.0], [1.0]]))[:dim, [0]]
+    def get_middle_joint_translation(self, dim=3):
+        return (self.get_lower_joint_transform() @ np.array([[self.rocker], [0.0], [0.0], [1.0]]))[:dim, [0]]
+
+    def get_lower_joint_transform(self):
+        return self.lower_joint.get_transform() @ tf.xyz_rpy_to_matrix((0.0, 0.0, 0.0, 0.0, 0.0, self.value))
 
 
 class Stewart:
@@ -79,14 +80,24 @@ class Stewart:
             if answer == 1:
                 theta = np.arcsin(x) - phi
             else:
-                theta = math.pi - np.arcsin(x) - phi
+                theta = np.pi - np.arcsin(x) - phi
 
             # theta -> [-pi, pi]
-            if theta > math.pi:
-                theta -= 2 * math.pi
-            if theta < -math.pi:
-                theta += 2 * math.pi
+            if theta > np.pi:
+                theta -= 2 * np.pi
+            if theta < -np.pi:
+                theta += 2 * np.pi
             link.value = theta
+
+        # check error
+        assert self.max_error() < 1e-3
+
+    def max_error(self):
+        points = self.get_points()
+        solved = np.linalg.norm((points[:, 1, :] - points[:, 2, :]), axis=1)
+        ground_truth = np.array([i.crank for i in self.links])
+        error = (solved - ground_truth) / ground_truth
+        return np.max(np.abs(error))
 
     def get_points(self):
         lower_to_world = self.lower_axis.get_transform()
@@ -95,12 +106,20 @@ class Stewart:
         for i in range(6):
             link = self.links[i]
             points[i, 0, :] = (lower_to_world @ link.lower_joint.get_translation(4))[:3, 0]
-            points[i, 1, :] = (lower_to_world @ link.get_middle_joint_at_lower_axis(4))[:3, 0]
+            points[i, 1, :] = (lower_to_world @ link.get_middle_joint_translation(4))[:3, 0]
             points[i, 2, :] = (upper_to_world @ link.upper_joint.get_translation(4))[:3, 0]
 
         return points
 
+    def get_lower_joint_transforms(self):
+        lower_to_world = self.lower_axis.get_transform()
+        lower_joint_transforms = []
+        for link in self.links:
+            lower_joint_transforms.append(lower_to_world @ link.get_lower_joint_transform())
+        return lower_joint_transforms
+
     def interact(self):
+        scale = np.max([i.crank for i in self.links]) + np.max([i.rocker for i in self.links])
         fig = plt.figure()
         ax1 = fig.add_axes([0.0, 0.2, 0.8, 0.8], projection='3d')
         ax2 = fig.add_axes([0.1, 0.15, 0.8, 0.05])
@@ -113,46 +132,46 @@ class Stewart:
         target_x_slider = Slider(
             ax=ax2,
             label='x',
-            valmin=-0.2,
-            valmax=0.2,
-            valinit=0.0
+            valmin=self.lower_axis.x - scale,
+            valmax=self.lower_axis.x + scale,
+            valinit=self.lower_axis.x
         )
         target_y_slider = Slider(
             ax=ax3,
             label='y',
-            valmin=-0.2,
-            valmax=0.2,
-            valinit=0.0
+            valmin=self.lower_axis.y - scale,
+            valmax=self.lower_axis.y + scale,
+            valinit=self.lower_axis.y
         )
         target_z_slider = Slider(
             ax=ax4,
             label='z',
-            valmin=0.0,
-            valmax=0.3,
-            valinit=0.2
+            valmin=self.lower_axis.z,
+            valmax=self.lower_axis.z + scale,
+            valinit=self.upper_axis.z
         )
         target_roll_slider = Slider(
             ax=ax5,
             label='roll',
-            valmin=-3.0,
-            valmax=3.0,
-            valinit=0.0,
+            valmin=self.lower_axis.roll - 3.0,
+            valmax=self.lower_axis.roll + 3.0,
+            valinit=self.lower_axis.roll,
             orientation="vertical"
         )
         target_pitch_slider = Slider(
             ax=ax6,
             label='pitch',
-            valmin=-3.0,
-            valmax=3.0,
-            valinit=0.0,
+            valmin=self.lower_axis.pitch - 3.0,
+            valmax=self.lower_axis.pitch + 3.0,
+            valinit=self.lower_axis.pitch,
             orientation="vertical"
         )
         target_yaw_slider = Slider(
             ax=ax7,
             label='yaw',
-            valmin=-3.0,
-            valmax=3.0,
-            valinit=0.0,
+            valmin=self.lower_axis.yaw - 3.0,
+            valmax=self.lower_axis.yaw + 3.0,
+            valinit=self.lower_axis.yaw,
             orientation="vertical"
         )
         button = Button(ax8, 'Reset', hovercolor='0.975')
@@ -160,27 +179,44 @@ class Stewart:
         points = self.get_points()
         points = np.append(points, points[[0], :, :], axis=0)
 
+        lower_joint_transforms = self.get_lower_joint_transforms()
+
         lower_line = ax1.plot(points[:, 0, 0], points[:, 0, 1], points[:, 0, 2])[0]
         upper_line = ax1.plot(points[:, 2, 0], points[:, 2, 1], points[:, 2, 2])[0]
 
         link_lines = []
+        lower_joint_frames = []
         for i in range(6):
             link_lines.append(ax1.plot(points[i, :, 0], points[i, :, 1], points[i, :, 2])[0])
+            lower_joint_frame = Frame(lower_joint_transforms[i], s=0.02)
+            lower_joint_frame.add_frame(ax1)
+            lower_joint_frames.append(lower_joint_frame)
+
+        upper_frame = Frame(self.upper_axis.get_transform(), s=0.05)
+        upper_frame.add_frame(ax1)
+
+        lower_frame = Frame(self.lower_axis.get_transform(), s=0.05)
+        lower_frame.add_frame(ax1)
 
         def update(attr, val):
+            origin = getattr(self.upper_axis, attr)
             setattr(self.upper_axis, attr, val)
             try:
                 self.solve()
             except RuntimeError:
+                setattr(self.upper_axis, attr, origin)
                 fig.suptitle('No solution')
             else:
                 fig.suptitle('')
                 new_points = self.get_points()
                 new_points = np.append(new_points, new_points[[0], :, :], axis=0)
+                new_lower_joint_transforms = self.get_lower_joint_transforms()
                 lower_line.set_data_3d(new_points[:, 0, 0], new_points[:, 0, 1], new_points[:, 0, 2])
                 upper_line.set_data_3d(new_points[:, 2, 0], new_points[:, 2, 1], new_points[:, 2, 2])
                 for i in range(6):
                     link_lines[i].set_data_3d(new_points[i, :, 0], new_points[i, :, 1], new_points[i, :, 2])
+                    lower_joint_frames[i].set_data(new_lower_joint_transforms[i])
+                upper_frame.set_data(self.upper_axis.get_transform())
                 fig.canvas.draw_idle()
 
         def reset(event):

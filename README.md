@@ -1,1 +1,4 @@
 # stewart
+
+![Demo](demo.gif)
+

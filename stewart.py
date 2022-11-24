@@ -1,8 +1,12 @@
+import copy
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.widgets import Slider, Button
+from matplotlib.widgets import Slider, Button, CheckButtons
 import transform as tf
-from plot_utils import Frame
+from plot_utils import Frame, ShadePoly3DCollection
+import stl
+from matplotlib import animation
+from itertools import accumulate
 
 
 class StewartAxis:
@@ -118,7 +122,108 @@ class Stewart:
             lower_joint_transforms.append(lower_to_world @ link.get_lower_joint_transform())
         return lower_joint_transforms
 
+    def save_animation(self):
+        mesh = stl.mesh.Mesh.from_file('head.stl')
+        vertices = mesh.vectors.reshape((-1, 3)) * 20.0
+        vertices = np.hstack((vertices, np.ones((len(vertices), 1)))).T
+        vertices = tf.xyz_rpy_to_matrix((0, 0, 0, 0, 0, -np.pi / 2)) @ vertices
+        fig = plt.figure()
+        ax1 = fig.add_axes([0.0, 0.0, 1.0, 1.0], projection='3d')
+
+        points = self.get_points()
+        points = np.append(points, points[[0], :, :], axis=0)
+
+        lower_joint_transforms = self.get_lower_joint_transforms()
+
+        lower_line = ax1.plot(points[:, 0, 0], points[:, 0, 1], points[:, 0, 2])[0]
+        upper_line = ax1.plot(points[:, 2, 0], points[:, 2, 1], points[:, 2, 2])[0]
+
+        link_lines = []
+        lower_joint_frames = []
+        for i in range(6):
+            link_lines.append(ax1.plot(points[i, :, 0], points[i, :, 1], points[i, :, 2])[0])
+            lower_joint_frame = Frame(lower_joint_transforms[i], s=0.02)
+            lower_joint_frame.add_frame(ax1)
+            lower_joint_frames.append(lower_joint_frame)
+
+        upper_frame = Frame(self.upper_axis.get_transform(), s=0.05)
+        upper_frame.add_frame(ax1)
+
+        lower_frame = Frame(self.lower_axis.get_transform(), s=0.05)
+        lower_frame.add_frame(ax1)
+
+        surface = ShadePoly3DCollection(
+            (self.upper_axis.get_transform() @ vertices)[:3, :].T.reshape(mesh.vectors.shape),
+            facecolors='#F1C27D',
+            edgecolors='#F1C27D',
+            shade=True
+        )
+        surface.set_alpha(1.0)
+        ax1.add_collection3d(surface)
+
+        z_limits = ax1.get_zlim3d()
+        ax1.set_zlim3d([z_limits[0], z_limits[1] + 0.4])
+        ax1.view_init(20, -20)
+
+        def repaint():
+            new_points = self.get_points()
+            new_points = np.append(new_points, new_points[[0], :, :], axis=0)
+            new_lower_joint_transforms = self.get_lower_joint_transforms()
+            lower_line.set_data_3d(new_points[:, 0, 0], new_points[:, 0, 1], new_points[:, 0, 2])
+            upper_line.set_data_3d(new_points[:, 2, 0], new_points[:, 2, 1], new_points[:, 2, 2])
+            for i in range(6):
+                link_lines[i].set_data_3d(new_points[i, :, 0], new_points[i, :, 1], new_points[i, :, 2])
+                lower_joint_frames[i].set_data(new_lower_joint_transforms[i])
+            upper_frame.set_data(self.upper_axis.get_transform())
+            surface.set_verts((self.upper_axis.get_transform() @ vertices)[:3, :].T.reshape(mesh.vectors.shape))
+            return lower_line, upper_line, *link_lines, upper_frame, *lower_joint_frames, surface
+
+        ax1.set_aspect('equal')
+
+        origin_upper_axis = copy.copy(self.upper_axis)
+
+        def animation_function(n):
+            print(n)
+
+            # n = (1 - np.cos(2 * np.pi * n / 60.0)) / 2.0
+            # self.upper_axis.y = origin_upper_axis.y + 0.05 * (2 * n - 1)
+            # self.upper_axis.z = origin_upper_axis.z + 0.01 * (3 * n - 1) ** 2
+
+            cnt = [30, 160, 30, 30, 160, 30]
+            sep = list(accumulate(cnt))
+
+            if n < sep[0]:
+                n = n / cnt[0]
+                self.upper_axis.y = origin_upper_axis.y + 0.05 * n
+            elif n < sep[1]:
+                n = (n - sep[0]) / cnt[1]
+                self.upper_axis.x = origin_upper_axis.x + 0.05 * np.sin(4 * np.pi * n)
+                self.upper_axis.y = origin_upper_axis.y + 0.05 * np.cos(4 * np.pi * n)
+            elif n < sep[2]:
+                n = (n - sep[1]) / cnt[2]
+                self.upper_axis.y = origin_upper_axis.y + 0.05 * (1.0 - n)
+            elif n < sep[3]:
+                n = (n - sep[2]) / cnt[3]
+                self.upper_axis.pitch = 0.2 * n
+            elif n < sep[4]:
+                n = (n - sep[3]) / cnt[4]
+                self.upper_axis.roll = 0.2 * np.sin(4 * np.pi * n)
+                self.upper_axis.pitch = 0.2 * np.cos(4 * np.pi * n)
+            elif n < sep[5]:
+                n = (n - sep[4]) / cnt[5]
+                self.upper_axis.pitch = 0.2 * (1 - n)
+            self.solve()
+            return repaint()
+
+        ani = animation.FuncAnimation(fig, animation_function, frames=440, blit=True)
+        writer = animation.FFMpegWriter(fps=60)
+        ani.save('demo.mp4', writer=writer, dpi=300)
+
     def interact(self):
+        mesh = stl.mesh.Mesh.from_file('head.stl')
+        vertices = mesh.vectors.reshape((-1, 3)) * 20.0
+        vertices = np.hstack((vertices, np.ones((len(vertices), 1)))).T
+        vertices = tf.xyz_rpy_to_matrix((0, 0, 0, 0, 0, -np.pi / 2)) @ vertices
         scale = np.max([i.crank for i in self.links]) + np.max([i.rocker for i in self.links])
         fig = plt.figure()
         ax1 = fig.add_axes([0.0, 0.2, 0.8, 0.8], projection='3d')
@@ -129,6 +234,7 @@ class Stewart:
         ax6 = fig.add_axes([0.9, 0.25, 0.05, 0.65])
         ax7 = fig.add_axes([0.85, 0.25, 0.05, 0.65])
         ax8 = fig.add_axes([0.8, 0.01, 0.1, 0.04])
+        ax9 = fig.add_axes([0.01, 0.7, 0.1, 0.15])
         target_x_slider = Slider(
             ax=ax2,
             label='x',
@@ -174,7 +280,8 @@ class Stewart:
             valinit=self.lower_axis.yaw,
             orientation="vertical"
         )
-        button = Button(ax8, 'Reset', hovercolor='0.975')
+        reset_button = Button(ax8, 'Reset', hovercolor='0.975')
+        head_button = CheckButtons(ax9, ['Head'], [True])
 
         points = self.get_points()
         points = np.append(points, points[[0], :, :], axis=0)
@@ -198,6 +305,32 @@ class Stewart:
         lower_frame = Frame(self.lower_axis.get_transform(), s=0.05)
         lower_frame.add_frame(ax1)
 
+        surface = ShadePoly3DCollection(
+            (self.upper_axis.get_transform() @ vertices)[:3, :].T.reshape(mesh.vectors.shape),
+            facecolors='#F1C27D',
+            edgecolors='#F1C27D',
+            shade=True
+        )
+        surface.set_alpha(1.0)
+        ax1.add_collection3d(surface)
+
+        z_limits = ax1.get_zlim3d()
+        ax1.set_zlim3d([z_limits[0], z_limits[1] + 0.4])
+        ax1.view_init(20, -20)
+
+        def repaint():
+            new_points = self.get_points()
+            new_points = np.append(new_points, new_points[[0], :, :], axis=0)
+            new_lower_joint_transforms = self.get_lower_joint_transforms()
+            lower_line.set_data_3d(new_points[:, 0, 0], new_points[:, 0, 1], new_points[:, 0, 2])
+            upper_line.set_data_3d(new_points[:, 2, 0], new_points[:, 2, 1], new_points[:, 2, 2])
+            for i in range(6):
+                link_lines[i].set_data_3d(new_points[i, :, 0], new_points[i, :, 1], new_points[i, :, 2])
+                lower_joint_frames[i].set_data(new_lower_joint_transforms[i])
+            upper_frame.set_data(self.upper_axis.get_transform())
+            surface.set_verts((self.upper_axis.get_transform() @ vertices)[:3, :].T.reshape(mesh.vectors.shape))
+            fig.canvas.draw_idle()
+
         def update(attr, val):
             origin = getattr(self.upper_axis, attr)
             setattr(self.upper_axis, attr, val)
@@ -208,16 +341,7 @@ class Stewart:
                 fig.suptitle('No solution')
             else:
                 fig.suptitle('')
-                new_points = self.get_points()
-                new_points = np.append(new_points, new_points[[0], :, :], axis=0)
-                new_lower_joint_transforms = self.get_lower_joint_transforms()
-                lower_line.set_data_3d(new_points[:, 0, 0], new_points[:, 0, 1], new_points[:, 0, 2])
-                upper_line.set_data_3d(new_points[:, 2, 0], new_points[:, 2, 1], new_points[:, 2, 2])
-                for i in range(6):
-                    link_lines[i].set_data_3d(new_points[i, :, 0], new_points[i, :, 1], new_points[i, :, 2])
-                    lower_joint_frames[i].set_data(new_lower_joint_transforms[i])
-                upper_frame.set_data(self.upper_axis.get_transform())
-                fig.canvas.draw_idle()
+                repaint()
 
         def reset(event):
             target_x_slider.reset()
@@ -227,13 +351,19 @@ class Stewart:
             target_pitch_slider.reset()
             target_yaw_slider.reset()
 
+        def set_show_head(label):
+            if label == 'Head':
+                surface.set_visible(not surface.get_visible())
+            repaint()
+
         target_x_slider.on_changed(lambda val: update('x', val))
         target_y_slider.on_changed(lambda val: update('y', val))
         target_z_slider.on_changed(lambda val: update('z', val))
         target_roll_slider.on_changed(lambda val: update('roll', val))
         target_pitch_slider.on_changed(lambda val: update('pitch', val))
         target_yaw_slider.on_changed(lambda val: update('yaw', val))
-        button.on_clicked(reset)
+        reset_button.on_clicked(reset)
+        head_button.on_clicked(set_show_head)
 
         ax1.set_aspect('equal')
         plt.show()

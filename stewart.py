@@ -153,24 +153,24 @@ class Stewart:
         target_roll_slider = Slider(
             ax=ax5,
             label='roll',
-            valmin=self.lower_axis.roll - 3.0,
-            valmax=self.lower_axis.roll + 3.0,
+            valmin=self.lower_axis.roll - np.pi / 2,
+            valmax=self.lower_axis.roll + np.pi / 2,
             valinit=self.lower_axis.roll,
             orientation="vertical"
         )
         target_pitch_slider = Slider(
             ax=ax6,
             label='pitch',
-            valmin=self.lower_axis.pitch - 3.0,
-            valmax=self.lower_axis.pitch + 3.0,
+            valmin=self.lower_axis.pitch - np.pi / 2,
+            valmax=self.lower_axis.pitch + np.pi / 2,
             valinit=self.lower_axis.pitch,
             orientation="vertical"
         )
         target_yaw_slider = Slider(
             ax=ax7,
             label='yaw',
-            valmin=self.lower_axis.yaw - 3.0,
-            valmax=self.lower_axis.yaw + 3.0,
+            valmin=self.lower_axis.yaw - np.pi / 2,
+            valmax=self.lower_axis.yaw + np.pi / 2,
             valinit=self.lower_axis.yaw,
             orientation="vertical"
         )

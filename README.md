@@ -11,3 +11,9 @@
 
 
 ![Demo3](demo3.gif)
+
+## Pack to go
+
+```powershell
+pyinstaller.exe -F -w -n stewart --add-data ".\head.STL;." .\main.py
+```

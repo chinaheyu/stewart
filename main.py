@@ -1,5 +1,7 @@
+from PySide6.QtWidgets import QApplication
 import math
 from stewart import Stewart, StewartAxis, StewartLink
+from stewart_plot import StewartPlot
 
 
 P1 = 0.1
@@ -14,14 +16,14 @@ P9 = 0.02
 
 
 def create_stewart():
-    lower_axis = (1.0, 1.0, 0.0, 0.0, 0.0, 0.0)
+    lower_axis = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
     lower_joints = ((P1 * math.cos(math.pi / 3) + P8 * math.sin(math.pi / 3), P1 * math.sin(math.pi / 3) - P8 * math.cos(math.pi / 3), 0.0, -math.pi / 2, 0.0, -math.pi / 6),
                     (P1 * math.cos(math.pi / 3) - P8 * math.sin(math.pi / 3), P1 * math.sin(math.pi / 3) + P8 * math.cos(math.pi / 3), 0.0, -math.pi / 2, 0.0, 5 * math.pi / 6),
                     (-P1, P8, 0.0, -math.pi / 2, 0.0, math.pi / 2),
                     (-P1, -P8, 0.0, -math.pi / 2, 0.0, -math.pi / 2),
                     (P1 * math.cos(math.pi / 3) - P8 * math.sin(math.pi / 3), -P1 * math.sin(math.pi / 3) - P8 * math.cos(math.pi / 3), 0.0, -math.pi / 2, 0.0, -5 * math.pi / 6),
                     (P1 * math.cos(math.pi / 3) + P8 * math.sin(math.pi / 3), -P1 * math.sin(math.pi / 3) + P8 * math.cos(math.pi / 3), 0.0, -math.pi / 2, 0.0, math.pi / 6))
-    upper_axis = (1.0, 1.0, P4, 0.0, 0.0, 0.0)
+    upper_axis = (0.0, 0.0, P4, 0.0, 0.0, 0.0)
     upper_joints = ((P5 * math.cos(math.pi / 3) + P9 * math.sin(math.pi / 3), P5 * math.sin(math.pi / 3) - P9 * math.cos(math.pi / 3), 0.0, 0.0, 0.0, 0.0),
                     (P5 * math.cos(math.pi / 3) - P9 * math.sin(math.pi / 3), P5 * math.sin(math.pi / 3) + P9 * math.cos(math.pi / 3), 0.0, 0.0, 0.0, 0.0),
                     (-P5, P9, 0.0, 0.0, 0.0, 0.0),
@@ -41,6 +43,11 @@ def create_stewart():
 
 
 if __name__ == '__main__':
-    stewart = create_stewart()
-    stewart.interact()
+    app = QApplication([])
 
+    stewart = create_stewart()
+    stewart_plot = StewartPlot(stewart)
+    stewart_plot.resize(800, 600)
+    stewart_plot.show()
+
+    app.exec()

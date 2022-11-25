@@ -103,11 +103,36 @@ class StewartPlot(QWidget):
         vertices = tf.xyz_rpy_to_matrix((0, 0, 0, 0, 0, -np.pi / 2)) @ vertices
         mesh.vertices = vertices[:3, :].T
         color = [hex_to_rgba('#F1C27D')]
+        shader = gl.shaders.ShaderProgram('shaded', [
+            gl.shaders.VertexShader("""
+                        varying vec3 normal;
+                        void main() {
+                            // compute here for use in fragment shader
+                            normal = normalize(gl_NormalMatrix * gl_Normal);
+                            gl_FrontColor = gl_Color;
+                            gl_BackColor = gl_Color;
+                            gl_Position = ftransform();
+                        }
+                    """),
+            gl.shaders.FragmentShader("""
+                        varying vec3 normal;
+                        void main() {
+                            float p = dot(normal, normalize(vec3(1.0, 1.0, 1.0)));
+                            p = p < 0. ? 0. : p * 0.8;
+                            vec4 color = gl_Color;
+                            color.x = color.x * (0.2 + p);
+                            color.y = color.y * (0.2 + p);
+                            color.z = color.z * (0.2 + p);
+                            gl_FragColor = color;
+                        }
+                    """)
+        ])
         self.mesh = gl.GLMeshItem(vertexes=mesh.vertices,
                                   faces=mesh.faces,
                                   faceColors=np.array(color * mesh.faces.shape[0]),
                                   vertexColors=np.array(color * mesh.vertices.shape[0]),
-                                  shader='shaded')
+                                  smooth=True,
+                                  shader=shader)
         self.view.addItem(self.mesh)
         self.view.setCameraParams(
             **{'elevation': 31.0, 'center': pg.Vector(0.967638, 0.181012, 0.850586), 'azimuth': 9.0,
